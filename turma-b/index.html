@@ -387,37 +387,42 @@
             <div class="card">
                 <div class="card-header">
                     <h2>⚙️ Linha de Produção</h2>
-                    <span class="badge">Meta do Dia: 50T</span>
+                    <span class="badge" id="prod-status-badge">Conectando...</span>
                 </div>
                 <div class="metric-large">
-                    <div class="metric-value">42 Toneladas</div>
-                    <div class="metric-label">Produção Atual</div>
-                </div>
+    <div class="metric-value" id="prod-total-itens">--</div>
+    <div class="metric-label">Itens em Produção (OPs abertas)</div>
+</div>
                 <div class="progress-bar-container">
-                    <div class="progress-bar" style="width: 84%"></div>
-                </div>
+    <div class="progress-bar" id="prod-progress-bar" style="width: 0%"></div>
+</div>
+<div style="font-size:0.75rem; color:#666; text-align:right; margin-top:2px;">
+    Avanço médio: <span id="prod-avanco">--%</span>
+</div>
                 
                 <!-- Gráfico de Produção -->
                 <div class="chart-container">
                     <canvas id="productionChart"></canvas>
                 </div>
                 
-                <div class="info-row">
-                    <span class="info-label">Status da Linha</span>
-                    <div style="text-align: right;">
-                        <div class="status operating">Triturador 1 (operando)</div>
-                        <div class="status stopped">Lavagem (Parado p/ Manutenção)</div>
-                    </div>
-                </div>
-                <div class="alert">
-                    ⚠️ Manutenção programada - Lavagem retorna em 2h
-                </div>
-                <div class="info-row">
-                    <span class="info-label">Lotes p/ Processar</span>
-                    <span class="info-value">Lote A · Lote B</span>
-                </div>
-                <a href="https://producao-start.vercel.app/" target="_blank">
-    <button class="btn">▶ Iniciar Processo</button>
+               <div class="info-row">
+    <span class="info-label">OPs em aberto</span>
+    <span class="info-value" id="prod-ops-abertas">--</span>
+</div>
+<div class="info-row">
+    <span class="info-label">Alta prioridade</span>
+    <span class="info-value" id="prod-alta-prior">--</span>
+</div>
+<div class="info-row">
+    <span class="info-label">Concluídas</span>
+    <span class="info-value" id="prod-concluidas">--</span>
+</div>
+<div id="prod-ops-lista"></div>
+<div id="prod-erro" class="alert" style="display:none;">
+    ⚠️ Não foi possível conectar ao sistema de produção.
+</div>
+               <a href="https://producao-start.vercel.app/" target="_blank">
+    <button class="btn">▶ Abrir Sistema de Produção</button>
 </a>
             </div>
 
@@ -600,29 +605,93 @@
                 }
             });
             
-            // Gráfico de Produção (últimas 12 horas)
-            const productionCtx = document.getElementById('productionChart').getContext('2d');
-            new Chart(productionCtx, {
-                type: 'line',
-                data: {
-                    labels: ['06h', '08h', '10h', '12h', '14h', '16h'],
-                    datasets: [{
-                        label: 'Toneladas Produzidas',
-                        data: [5, 12, 18, 25, 35, 42],
-                        borderColor: '#2196f3',
-                        backgroundColor: 'rgba(33, 150, 243, 0.1)',
-                        tension: 0.4,
-                        fill: true
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: true,
-                    plugins: {
-                        legend: { position: 'top' }
-                    }
-                }
-            });
+           // Gráfico de Produção - por etapa, preenchido pela API
+const productionCtx = document.getElementById('productionChart').getContext('2d');
+const productionChart = new Chart(productionCtx, {
+    type: 'bar',
+    data: {
+        labels: ['Recepção', 'Processamento', 'Fabricação', 'Qualidade', 'Embalagem', 'Concluído'],
+        datasets: [{
+            label: 'Itens por Etapa',
+            data: [0, 0, 0, 0, 0, 0],
+            backgroundColor: [
+                'rgba(156,39,176,0.7)',
+                'rgba(33,150,243,0.7)',
+                'rgba(255,152,0,0.7)',
+                'rgba(33,150,243,0.7)',
+                'rgba(33,150,243,0.7)',
+                'rgba(76,175,80,0.7)'
+            ],
+            borderRadius: 6
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: { legend: { position: 'top' } },
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+    }
+});
+// Busca dados reais do ProducaoStart
+async function carregarProducao() {
+    try {
+        const res = await fetch("https://producao-start.vercel.app/api/mvp-data", { cache: "no-store" });
+        if (!res.ok) throw new Error("API indisponível");
+        const data = await res.json();
+
+        const orders = data.orders || [];
+        const abertas = orders.filter(o => o.stage !== "concluido");
+        const concluidas = orders.filter(o => o.stage === "concluido");
+        const altaPrior = abertas.filter(o => o.priority === "Alta");
+        const totalItens = abertas.reduce((s, o) => s + (o.quantity || 0), 0);
+        const avanco = abertas.length
+            ? Math.round(abertas.reduce((s, o) => s + (o.progress || 0), 0) / abertas.length)
+            : 0;
+
+        // Atualiza os elementos na tela
+        document.getElementById("prod-total-itens").textContent = totalItens.toLocaleString("pt-BR") + " Itens";
+        document.getElementById("prod-ops-abertas").textContent = abertas.length;
+        document.getElementById("prod-avanco").textContent = avanco + "%";
+        document.getElementById("prod-alta-prior").textContent = altaPrior.length;
+        document.getElementById("prod-concluidas").textContent = concluidas.length;
+        document.getElementById("prod-progress-bar").style.width = avanco + "%";
+        document.getElementById("prod-status-badge").textContent = "🟢 Ao vivo";
+        document.getElementById("prod-erro").style.display = "none";
+
+        // Atualiza o gráfico
+        const stages = ["recepcao","processamento","fabricacao","qualidade","embalagem","concluido"];
+        productionChart.data.datasets[0].data = stages.map(stage =>
+            orders.filter(o => o.stage === stage).reduce((s, o) => s + (o.quantity || 0), 0)
+        );
+        productionChart.update();
+
+        // Lista as 4 OPs mais recentes
+        const lista = document.getElementById("prod-ops-lista");
+        const top4 = abertas.slice(0, 4);
+        if (top4.length) {
+            lista.innerHTML = top4.map(o => `
+                <div style="display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid #eee;">
+                    <span><strong>${o.code}</strong> · ${o.quantity} un.</span>
+                    <span style="font-size:0.72rem; padding:2px 8px; border-radius:10px;
+                        background:${o.priority==='Alta'?'#fdecea':'#e0f0e9'};
+                        color:${o.priority==='Alta'?'#c0392b':'#1a6b3c'};">
+                        ${o.priority}
+                    </span>
+                </div>
+            `).join("");
+        } else {
+            lista.innerHTML = "<div style='color:#888; font-size:0.82rem; padding:6px 0;'>Nenhuma OP em aberto.</div>";
+        }
+
+    } catch (e) {
+        document.getElementById("prod-status-badge").textContent = "⚠️ Offline";
+        document.getElementById("prod-erro").style.display = "block";
+        console.error("Erro ao carregar produção:", e);
+    }
+}
+
+carregarProducao();
+setInterval(carregarProducao, 60000);
             
             // Gráfico de Estoque
             const inventoryCtx = document.getElementById('inventoryChart').getContext('2d');
